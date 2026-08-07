@@ -1,0 +1,4 @@
+[project]
+name="nateks-legacy-adapter"
+version="0.2.dev0"
+dependencies=["requests","beautifulsoup4","lxml"]
