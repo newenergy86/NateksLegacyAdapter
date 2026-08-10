@@ -1,75 +1,98 @@
 import re
+import random
 import requests
 from bs4 import BeautifulSoup
 
-IP = "10.0.110.28"
+IP = "10.0.110.39"
 LOGIN = "admin"
 PASSWORD = "1q2w3e4r"
 
 s = requests.Session()
 
-s.post(
-    f"http://{IP}/goform/SetSigninInfo",
+print("Получаю страницу авторизации...")
+
+r = s.get(f"http://{IP}/login.htm")
+
+print("LOGIN:", r.status_code)
+
+# Браузер перед login() создаёт cookie seid
+s.cookies.set("seid", str(random.randint(1, 10)))
+
+verify = input("Введите код с картинки: ").strip().lower()
+
+print("Авторизация...")
+
+r = s.post(
+    f"http://{IP}/stat/login",
     data={
-        "userName": LOGIN,
-        "password": PASSWORD,
-        "language": "3",
-        "result": "1"
-    }
+        "user": LOGIN,
+        "pwd": PASSWORD,
+        "verify": verify,
+        "ssltype": "0"
+    },
+    allow_redirects=True
 )
 
-# ---------- список VLAN ----------
+print("POST:", r.status_code)
+print("URL:", r.url)
 
-html = s.get(f"http://{IP}/vlan.asp").text
+print()
+print("COOKIES:")
+for cookie in s.cookies:
+    print(" ", cookie.name, "=", cookie.value)
 
-vlans = sorted(set(re.findall(r"vlan_show\.asp\?vlanid=(\d+)", html)), key=int)
+print()
+print("Проверяю index.htm...")
 
-print("VLAN LIST:", vlans)
+r = s.get(f"http://{IP}/index.htm")
 
-# ---------- читаем каждую VLAN ----------
+print("INDEX:", r.status_code)
+print("INDEX URL:", r.url)
+print("INDEX SIZE:", len(r.text))
 
-for vlan in vlans:
+# Сохраняем страницу для исследования
+with open("index_after_login.html", "w", encoding="utf-8") as f:
+    f.write(r.text)
 
-    print("\n" + "=" * 50)
-    print("VLAN", vlan)
+print()
+print("Ищу ссылки на VLAN...")
 
-    html = s.get(
-        f"http://{IP}/vlan_show.asp?vlanid={vlan}"
-    ).text
+for match in re.findall(
+    r'(?:href|src)\s*=\s*["\']([^"\']+)["\']',
+    r.text,
+    re.IGNORECASE
+):
+    if "vlan" in match.lower():
+        print("VLAN:", match)
 
-    soup = BeautifulSoup(html, "html.parser")
+print()
+print("Ищу слова vlan в HTML...")
 
-    for port in range(1, 10):
+for line in r.text.splitlines():
+    if "vlan" in line.lower():
+        print(line[:300])
 
-        checkbox = soup.find("input", {"name": f"select{port}", "type": "checkbox"})
+print()
+print("Готово.")
+print("Файл сохранён:")
+print("index_after_login.html")
 
-        if checkbox is None:
-            continue
+print()
+print("=" * 60)
+print("ПОЛУЧАЮ КОНФИГУРАЦИЮ VLAN НОВОЙ ПРОШИВКИ")
 
-        if not checkbox.has_attr("checked"):
-            continue
+r = s.get(f"http://{IP}/config/vlan")
 
-        tagged = False
-        untagged = False
+print("STATUS:", r.status_code)
+print("URL:", r.url)
+print("SIZE:", len(r.text))
 
-        radios = soup.find_all("input", {"name": f"rate{port}"})
+print()
+print("RAW RESPONSE:")
+print(r.text)
 
-        for r in radios:
+with open("vlan_config_response.txt", "w", encoding="utf-8") as f:
+    f.write(r.text)
 
-            if not r.has_attr("checked"):
-                continue
-
-            if r.get("value") == "1":
-                tagged = True
-
-            if r.get("value") == "2":
-                untagged = True
-
-        if tagged:
-            print(f"Port {port}   Tagged")
-
-        elif untagged:
-            print(f"Port {port}   Untagged")
-
-        else:
-            print(f"Port {port}   Unknown")
+print()
+print("Ответ сохранён в vlan_config_response.txt")

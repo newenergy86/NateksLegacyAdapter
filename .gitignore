@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .venv/
+tools/index_after_login.html
+tools/vlan_config_response.txt
