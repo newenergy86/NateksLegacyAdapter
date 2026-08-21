@@ -236,6 +236,54 @@ def membership_value(session, ip, vlan_id):
         )
     )
 
+def membership_discovery(session, ip, vlan_id):
+    """Output Zabbix LLD for VLAN port membership."""
+
+    vlan_ids = get_vlan_ids(
+        session,
+        ip,
+    )
+
+    vlan_ids = [int(vlan) for vlan in vlan_ids]
+
+    if vlan_id not in vlan_ids:
+        raise ValueError(
+            f"VLAN {vlan_id} not found"
+        )
+
+    tagged, untagged = get_vlan_config(
+        session,
+        ip,
+        vlan_id,
+    )
+
+    result = []
+
+    for port in untagged:
+        result.append(
+            {
+                "{#VLANID}": str(vlan_id),
+                "{#PORT}": str(port),
+                "{#MEMBERSHIP}": "Untagged",
+            }
+        )
+
+    for port in tagged:
+        result.append(
+            {
+                "{#VLANID}": str(vlan_id),
+                "{#PORT}": str(port),
+                "{#MEMBERSHIP}": "Tagged",
+            }
+        )
+
+    print(
+        json.dumps(
+            result,
+            separators=(",", ":"),
+        )
+    )
+
 def main():
     parser = argparse.ArgumentParser(
         description="Nateks NXI-3030 Legacy Adapter"
@@ -269,6 +317,13 @@ def main():
         metavar="VLAN_ID",
         help="Output Tagged/Untagged membership for VLAN",
     )
+    
+    group.add_argument(
+        "--membership-discovery",
+        type=int,
+        metavar="VLAN_ID",
+        help="Output Zabbix LLD for VLAN port membership",
+    )
 
     args = parser.parse_args()
 
@@ -295,6 +350,15 @@ def main():
             args.ip,
             args.membership,
         )
+        
+    elif args.membership_discovery is not None:
+        membership_discovery(
+            session,
+            args.ip,
+            args.membership_discovery,
+        )
+
+
 
 
 if __name__ == "__main__":
