@@ -202,8 +202,8 @@ def vlan_value(session, ip, vlan_id):
 
     print(bitmap)
     
-def membership_value(session, ip, vlan_id):
-    """Output Tagged/Untagged membership for one VLAN as JSON."""
+def membership_value(session, ip, vlan_id, port):
+    """Output membership for one VLAN port."""
 
     vlan_ids = get_vlan_ids(
         session,
@@ -223,17 +223,16 @@ def membership_value(session, ip, vlan_id):
         vlan_id,
     )
 
-    result = {
-        "vlan": vlan_id,
-        "tagged": tagged,
-        "untagged": untagged,
-    }
+    if port in untagged:
+        print("Untagged")
+        return
 
-    print(
-        json.dumps(
-            result,
-            separators=(",", ":"),
-        )
+    if port in tagged:
+        print("Tagged")
+        return
+
+    raise ValueError(
+        f"Port {port} is not a member of VLAN {vlan_id}"
     )
 
 def membership_discovery(session, ip, vlan_id):
@@ -357,9 +356,10 @@ def main():
     
     group.add_argument(
         "--membership",
+        nargs=2,
         type=int,
-        metavar="VLAN_ID",
-        help="Output Tagged/Untagged membership for VLAN",
+        metavar=("VLAN_ID", "PORT"),
+        help="Output Tagged/Untagged membership for VLAN port",
     )
     
     group.add_argument(
@@ -398,7 +398,8 @@ def main():
         membership_value(
             session,
             args.ip,
-            args.membership,
+            args.membership[0],
+            args.membership[1],
         )
         
     elif args.membership_discovery is not None:
