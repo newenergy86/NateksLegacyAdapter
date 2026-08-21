@@ -284,6 +284,50 @@ def membership_discovery(session, ip, vlan_id):
         )
     )
 
+def membership_discovery_all(session, ip):
+    """Output Zabbix LLD for all VLAN port memberships."""
+
+    vlan_ids = get_vlan_ids(
+        session,
+        ip,
+    )
+
+    result = []
+
+    for vlan_id in vlan_ids:
+        vlan_id = int(vlan_id)
+
+        tagged, untagged = get_vlan_config(
+            session,
+            ip,
+            vlan_id,
+        )
+
+        for port in untagged:
+            result.append(
+                {
+                    "{#VLANID}": str(vlan_id),
+                    "{#PORT}": str(port),
+                    "{#MEMBERSHIP}": "Untagged",
+                }
+            )
+
+        for port in tagged:
+            result.append(
+                {
+                    "{#VLANID}": str(vlan_id),
+                    "{#PORT}": str(port),
+                    "{#MEMBERSHIP}": "Tagged",
+                }
+            )
+
+    print(
+        json.dumps(
+            result,
+            separators=(",", ":"),
+        )
+    )
+
 def main():
     parser = argparse.ArgumentParser(
         description="Nateks NXI-3030 Legacy Adapter"
@@ -325,6 +369,12 @@ def main():
         help="Output Zabbix LLD for VLAN port membership",
     )
 
+    group.add_argument(
+        "--membership-discovery-all",
+        action="store_true",
+        help="Output Zabbix LLD for all VLAN port memberships",
+    )
+
     args = parser.parse_args()
 
     session = create_session(
@@ -356,6 +406,12 @@ def main():
             session,
             args.ip,
             args.membership_discovery,
+        )
+        
+    elif args.membership_discovery_all:
+        membership_discovery_all(
+            session,
+            args.ip,
         )
 
 
