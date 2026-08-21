@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import json
 import re
@@ -6,11 +8,11 @@ import requests
 from bs4 import BeautifulSoup
 
 
-IP = "10.0.110.28"
 LOGIN = "admin"
 PASSWORD = "1q2w3e4r"
 
 
+# Соответствие портов bitmap новой прошивки.
 PORT_BITS = {
     1: 0x8000,
     2: 0x4000,
@@ -26,6 +28,8 @@ PORT_BITS = {
 
 
 def encode_vlan_bitmap(tagged, untagged):
+    """Convert VLAN membership to a two-byte bitmap."""
+
     bitmap = 0
 
     for port in set(tagged) | set(untagged):
@@ -37,22 +41,31 @@ def encode_vlan_bitmap(tagged, untagged):
     return f"{bitmap >> 8:02X} {bitmap & 0xFF:02X}"
 
 
-def login(session):
+def login(session, ip):
+    """Authenticate to the legacy NXI-3030 Web interface."""
+
     response = session.post(
-        f"http://{IP}/goform/SetSigninInfo",
+        f"http://{ip}/goform/SetSigninInfo",
         data={
             "userName": LOGIN,
             "password": PASSWORD,
             "language": "3",
             "result": "1",
         },
+        timeout=10,
     )
 
     response.raise_for_status()
 
 
-def get_vlan_ids(session):
-    response = session.get(f"http://{IP}/vlan.asp")
+def get_vlan_ids(session, ip):
+    """Get VLAN IDs from vlan.asp."""
+
+    response = session.get(
+        f"http://{ip}/vlan.asp",
+        timeout=10,
+    )
+
     response.raise_for_status()
 
     return sorted(
@@ -66,13 +79,20 @@ def get_vlan_ids(session):
     )
 
 
-def get_vlan_config(session, vlan_id):
+def get_vlan_config(session, ip, vlan_id):
+    """Read Tagged/Untagged ports for one VLAN."""
+
     response = session.get(
-        f"http://{IP}/vlan_show.asp?vlanid={vlan_id}"
+        f"http://{ip}/vlan_show.asp?vlanid={vlan_id}",
+        timeout=10,
     )
+
     response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
 
     tagged = []
     untagged = []
@@ -116,14 +136,26 @@ def get_vlan_config(session, vlan_id):
     return tagged, untagged
 
 
-def create_session():
+def create_session(ip):
+    """Create authenticated HTTP session."""
+
     session = requests.Session()
-    login(session)
+
+    login(
+        session,
+        ip,
+    )
+
     return session
 
 
-def discovery(session):
-    vlan_ids = get_vlan_ids(session)
+def discovery(session, ip):
+    """Output Zabbix LLD discovery JSON."""
+
+    vlan_ids = get_vlan_ids(
+        session,
+        ip,
+    )
 
     result = []
 
@@ -134,19 +166,32 @@ def discovery(session):
             }
         )
 
-    print(json.dumps(result, separators=(",", ":")))
+    print(
+        json.dumps(
+            result,
+            separators=(",", ":"),
+        )
+    )
 
 
-def vlan_value(session, vlan_id):
-    vlan_ids = get_vlan_ids(session)
+def vlan_value(session, ip, vlan_id):
+    """Output bitmap for one VLAN."""
+
+    vlan_ids = get_vlan_ids(
+        session,
+        ip,
+    )
 
     vlan_ids = [int(vlan) for vlan in vlan_ids]
 
     if vlan_id not in vlan_ids:
-        raise ValueError(f"VLAN {vlan_id} not found")
+        raise ValueError(
+            f"VLAN {vlan_id} not found"
+        )
 
     tagged, untagged = get_vlan_config(
         session,
+        ip,
         vlan_id,
     )
 
@@ -156,39 +201,100 @@ def vlan_value(session, vlan_id):
     )
 
     print(bitmap)
+    
+def membership_value(session, ip, vlan_id):
+    """Output Tagged/Untagged membership for one VLAN as JSON."""
 
+    vlan_ids = get_vlan_ids(
+        session,
+        ip,
+    )
+
+    vlan_ids = [int(vlan) for vlan in vlan_ids]
+
+    if vlan_id not in vlan_ids:
+        raise ValueError(
+            f"VLAN {vlan_id} not found"
+        )
+
+    tagged, untagged = get_vlan_config(
+        session,
+        ip,
+        vlan_id,
+    )
+
+    result = {
+        "vlan": vlan_id,
+        "tagged": tagged,
+        "untagged": untagged,
+    }
+
+    print(
+        json.dumps(
+            result,
+            separators=(",", ":"),
+        )
+    )
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Nateks NXI-3030 legacy VLAN adapter"
+        description="Nateks NXI-3030 Legacy Adapter"
     )
 
     parser.add_argument(
+        "ip",
+        help="IP address of legacy NXI-3030",
+    )
+
+    group = parser.add_mutually_exclusive_group(
+        required=True
+    )
+
+    group.add_argument(
         "--discovery",
         action="store_true",
         help="Output VLAN discovery JSON",
     )
 
-    parser.add_argument(
+    group.add_argument(
         "--vlan",
         type=int,
-        help="Return bitmap for VLAN",
+        metavar="VLAN_ID",
+        help="Output bitmap for VLAN",
+    )
+    
+    group.add_argument(
+        "--membership",
+        type=int,
+        metavar="VLAN_ID",
+        help="Output Tagged/Untagged membership for VLAN",
     )
 
     args = parser.parse_args()
 
-    if not args.discovery and args.vlan is None:
-        parser.error(
-            "Specify --discovery or --vlan VLAN_ID"
-        )
-
-    session = create_session()
+    session = create_session(
+        args.ip
+    )
 
     if args.discovery:
-        discovery(session)
+        discovery(
+            session,
+            args.ip,
+        )
 
     elif args.vlan is not None:
-        vlan_value(session, args.vlan)
+        vlan_value(
+            session,
+            args.ip,
+            args.vlan,
+        )
+    
+    elif args.membership is not None:
+        membership_value(
+            session,
+            args.ip,
+            args.membership,
+        )
 
 
 if __name__ == "__main__":
